@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import *
-from user.serializers import UserSerializer
+from user.serializers import CommentUserSerializer
 from rest_framework_recursive.fields import RecursiveField
 
 from django.contrib.auth import get_user_model
@@ -11,6 +11,8 @@ from content.models import News
 
     ########author = UserSerializer(write_only=True)
 
+
+
 class ContentObjectRelatedField(serializers.RelatedField):
     def to_representation(self, value):
         class_name = str(type(value).__name__)
@@ -18,72 +20,73 @@ class ContentObjectRelatedField(serializers.RelatedField):
 
 
 class FilterParentSerializer(serializers.ListSerializer):
-    """Фильтр комментариев, только parents"""
+    """Display only comment that has no parents (do not display childs)"""
     def to_representation(self, data):
-        data = data.filter(parent=None)
+        # data = data.filter(parent=None)
+        if self.context.get('filtered_parent'):
+            return super().to_representation(self.context.get('filtered_parent'))
         return super().to_representation(data)
-    
-class GetRecursiveSerializer(serializers.Serializer):
-    """Вывод рекурсивно children"""
+
+
+class ChildrenSerializer(serializers.Serializer):
+    """Display childs. Return serializer that refers to itself"""
     def to_representation(self, value):
-        # print(1)
-        # print(value.pk)
-        # print(self)
-        # print(self.parent)
-        #print(self.parent.parent)
+        # CommentGetSerializer(...) is equal to:
         serializer = self.parent.parent.__class__(value, context=self.context)
         return serializer.data
 
 
 class CommentMixin(metaclass=serializers.SerializerMetaclass):
-    # children = GetRecursiveSerializer(many=True, read_only=True)
-
     content_object = ContentObjectRelatedField(read_only=True)
-    # reaction = serializers.SerializerMethodField(read_only=True)
-    # your_reaction = serializers.SerializerMethodField(read_only=True)
+    children = ChildrenSerializer(many=True, read_only=True)
 
-    # def get_your_reaction(self, comment):
-    #     if self.context:
-    #         user = self.context.get('request').user
-    #         if user:
-    #             # if user left a reaction return his reaction
-    #             # reaction_obj = Reaction.objects.filter(user=user, comment=comment).only('status').first()
-    #             reaction_obj = comment.comment_reaction.filter(user=user).first()
-    #             if reaction_obj:
-    #                 return reaction_obj.status
-    #     return None     
+    reaction = serializers.SerializerMethodField(read_only=True)
+    your_reaction = serializers.SerializerMethodField(read_only=True)
+
+    def get_your_reaction(self, comment):
+        # for num, name in Reaction.REACTION_STATUS_CHOICES:
+        #     if num == comment.t2:
+        #         return name
+        if hasattr(comment, 'your_react'):
+            return comment.your_react
+        
 
     def get_reaction(self, comment):
+        """
+        Dynamic set value in dict 'reactions' to it value in comment.<attr> Like so:
+        reactions['Dislike'] = comment.Dislike
+        reactions['Like'] = comment.Like
+        """
         reactions = {}
-
-        if comment.comment_reaction.exists():
-            print(comment.comment_reaction.all())
-            
         for i in Reaction.REACTION_STATUS_CHOICES:
-            count = comment.comment_reaction.filter(status=i[0]).count()
-            react_name = i[1]
-            reactions[react_name] = count
-        return reactions
+            if hasattr(comment, i[1]):
+                reactions[i[1]] = getattr(comment, i[1])
+        return reactions 
+        # for i in Reaction.REACTION_STATUS_CHOICES:
+        #     count = comment.comment_reaction.filter(status=i[0]).count()
+        #     react_name = i[1]
+        #     reactions[react_name] = count
+        # return reactions
 
 
     class Meta:
-        # list_serializer_class = FilterParentSerializer
+        list_serializer_class = FilterParentSerializer
         model = Comment
         fields = (
-            # 'children',
-            # 'your_reaction',
-            'reactions',
             'pk',
             'author',
             'body',
             'create_time',
             'update_time',
-            # 'reaction',
+            'your_reaction',
+            'reaction',
+            'rating',
             'is_deleted',
             'content_object',
             'parent',
-            'content_type',
-            'object_id',
+            'children',
+            'content_type', # w_o
+            'object_id',    # w_o
             
         )
 
@@ -91,13 +94,12 @@ class CommentMixin(metaclass=serializers.SerializerMetaclass):
             'content_type': {'write_only': True},
             'object_id': {'write_only': True},
             'pk': {'read_only': True},
-            'is_deleted': {'read_only': True}
+            'is_deleted': {'read_only': True},
+            'rating': {'read_only': True}
         }
 
 class CommentGetSerializer(CommentMixin, serializers.ModelSerializer):
-    # author = UserSerializer()
-    pass
-
+    author = CommentUserSerializer(read_only=True)
         
 class CommentPostSerializer(CommentMixin, serializers.ModelSerializer):
     author = serializers.HiddenField(default=serializers.CurrentUserDefault())

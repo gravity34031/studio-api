@@ -207,7 +207,7 @@ class TitleRating(models.Model):
             if title:
                 avg_rating, voters = self._get_rating_and_voters(title_id)
                 AverageTitleRating.objects.update_or_create(title=title_id, defaults={'title': title, 'rating': avg_rating, 'voters': voters})
-                # If title with title_id exists then Update it with rating
+                # If AverageTitleRating with title_id exists then Update it with rating
                 # Else create new one with {'title': title, 'rating': avg_rating}
 
     ### Funtions to create Average rating in Title model ###

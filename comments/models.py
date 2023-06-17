@@ -17,6 +17,7 @@ class Comment(models.Model):
     create_time = models.DateTimeField(auto_now_add=True)
     update_time = models.DateTimeField(auto_now=True)
     reaction = models.ManyToManyField(User, blank=True, related_name='reaction_comments', through='Reaction')
+    rating = models.PositiveBigIntegerField(default=0)
     is_deleted = models.BooleanField(blank=True, default=False)
 
     content_type = models.ForeignKey(ContentType, on_delete=models.RESTRICT)
@@ -33,34 +34,37 @@ class Comment(models.Model):
         verbose_name_plural = 'Комментарии'
     
     def __str__(self):
-        return self.body
+        parent = None
+        if self.parent is not None:
+            parent = self.parent.pk
+        return f'{parent} - {self.author} {self.body}'
 
-    @property
-    def reactions(self):
-        reactions_dict = {tup[0]: 0 for tup in Reaction.REACTION_STATUS_CHOICES}
-        # print('----')
+    def save(self, *args, **kwargs):
+        initial_parent = self._get_initial_parent(self.parent)
+        self.parent = initial_parent
 
+        super().save(*args, **kwargs)
 
+    def _get_initial_parent(self, comment):
+        if comment is not None: # if there is parent in request
+            if comment.parent is None:
+                return comment
+            else: # if comment is children and it has parent <find parent of the parent of the comment>
+                return self.get_initial_parent(comment.parent)
+        else:
+            return None
 
-
-
-
-        for r in self.comment_reaction.all():
-            reactions_dict[r.status] += 1
-
-
-        # for i in Reaction.REACTION_STATUS_CHOICES:
-        #     count = self.comment_reaction.filter(status=i[0]).count()
-        #     react_name = i[1]
-        #     reactions_dict[react_name] = count
-        return reactions_dict
-
+    def _get_rating(self):
+        reaction = self.comment_reaction
+        dislikes = reaction.filter(status=0).count()
+        likes = reaction.filter(status=1).count()
+        return likes - dislikes
 
 
 class Reaction(models.Model):
-    DELETE = 0
-    DISLIKE = 1
-    LIKE = 2
+    DELETE = -1
+    DISLIKE = 0
+    LIKE = 1
     REACTION_STATUS_CHOICES = [
         (DISLIKE, 'Dislike'),
         (LIKE, 'Like'),
@@ -71,6 +75,19 @@ class Reaction(models.Model):
 
     def __str__(self):
         return f'{self.user}, {self.status}, {self.comment}'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        # Update comment's rating
+        comment= self.comment
+        comment.rating = comment._get_rating()
+        comment.save(update_fields=['rating'])
+
+
+        
+
+
 
 
 

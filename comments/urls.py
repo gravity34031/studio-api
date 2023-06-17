@@ -19,7 +19,16 @@ urlpatterns = [
     GET comments/jujutsu-kaisen/?content_type=(title/news)
     must include param content_type e.g. .../comments/jujutsu-kaisen/?content_type=title
 
-    field your_reaction show YOUR reaction to the comment. 1 - LIKE; 2 - DISLIKE
+    field your_reaction show YOUR reaction to the comment. 0 - LIKE; 1 - DISLIKE
+
+    Params:
+        content_type (title/news)
+        
+        ordering: <create_time; rating>
+            <-rating> will be sort by popularity (from big to small values)
+            <create_time> from old to recent
+            <-create_time> from recent to old   # set by default
+
 """
 
 """
@@ -52,8 +61,8 @@ delete comment only if there is no childs of it
 """
     PATCH   ...react-comment/2/     where 2 is id of the comment
     
-    status. 0 for delete
-            1 for dislike
-            2 for like
+    status. -1 for delete
+            0 for dislike
+            1 for like
 
 """

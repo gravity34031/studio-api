@@ -1,5 +1,5 @@
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, F, Value, OuterRef, QuerySet, Prefetch
+from django.db.models import Count, Sum, F, Q, Value, Exists, OuterRef, QuerySet, Prefetch, FilteredRelation, Case, When
 from .models import *
 from .serializers import *
 from rest_framework import viewsets, permissions, status, generics
@@ -25,6 +25,9 @@ str_to_model_dict = {'Title': Title, 'News': News} # Here you can add other mode
 class GetCommentsView(GenericAPIView):
     serializer_class = CommentGetSerializer
     queryset = Comment.objects.all()
+    filter_backends = [OrderingFilter, SearchFilter]
+    ordering_fields = ('create_time', 'rating')
+    ordering = ['-create_time']
 
     def get_queryset(self):
         queryset = Comment.objects.none()
@@ -35,17 +38,47 @@ class GetCommentsView(GenericAPIView):
             content_type = str_to_model_dict.get(str(content_type_param).title(), None)
             if content_type:
                 post = get_object_or_404(content_type, slug=slug)
-                queryset = post.comments.select_related('author').prefetch_related('content_object', Prefetch('comment_reaction', queryset=Reaction.objects.select_related('user')))
+                queryset = post.comments.select_related('author').prefetch_related('content_object', Prefetch('comment_reaction', queryset=Reaction.objects.select_related('user'))) \
+
+                """
+                Adding child_queryset need to add annotation not only to comment but for it child too
+                """
+                child_queryset = Comment.objects.filter(~Q(parent=None)).prefetch_related('children', 'content_object').select_related('author').order_by('create_time')
+
+
+                if request.user:
+                    queryset = queryset.annotate(your_react = Sum(Case(
+                        When(comment_reaction__user=request.user, then=F('comment_reaction__status'))
+                    )))
+                    child_queryset = child_queryset.annotate(your_react = Sum(Case(
+                        When(comment_reaction__user=request.user, then=F('comment_reaction__status'))
+                    )))
+
+                """ 
+                Auto annotate queryset. Adding count of each reaction to the comment. Name of annotation is taken from Reaction.REACTION_STATUS_CHOICES
+                Like this but dynamic and for all reactions:
+                .annotate(Dislike=Count('comment_reaction', filter=Q(comment_reaction__status=1)))
+                .annotate(Like=Count('comment_reaction', filter=Q(comment_reaction__status=2)))
+                """
+                for i in Reaction.REACTION_STATUS_CHOICES:
+                    queryset = queryset.annotate(**{i[1]: Count('comment_reaction', filter=Q(comment_reaction__status=i[0]))})
+                    child_queryset = child_queryset.annotate(**{i[1]: Count('comment_reaction', filter=Q(comment_reaction__status=i[0]))})
+
+                # Prefetch queryset of childs to apply all changes in annotation
+                queryset = queryset.prefetch_related(Prefetch('children', queryset=child_queryset  ))\
 
                 
         return queryset
 
 
-    def get(self, request, slug, *args, **kwargs):
-        queryset = self.get_queryset()
 
-        if queryset:      
-            serializer = CommentGetSerializer(queryset, many=True, context={'request': request})
+    def get(self, request, slug, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        if queryset:
+            data_for_filter_parent_serializer = queryset.filter(parent=None) # need to add to context
+
+            serializer = CommentGetSerializer(queryset, many=True, context={'request': request, 'filtered_parent': data_for_filter_parent_serializer})
             return Response(serializer.data)
         return Response({'error': 'Данный контент не найден. Подсказка: укажите в параметрах запроса поле <content_type>, где задайте значение для конкретной модели. Пример: .../comments/magicheskaya-bitva/?content_type=title'})
 
@@ -80,8 +113,14 @@ class CommentRetrieveView(APIView):
     serializer_class = CommentPostSerializer
     queryset = Comment.objects.all()
 
+    def get_queryset(self):
+        return Comment.objects.select_related('author').prefetch_related(
+            Prefetch('children', queryset=Comment.objects.select_related('author').prefetch_related('children', 'content_object').order_by('create_time'))
+            )
+    
+
     def get(self, request, pk, *args, **kwargs):
-        instance = get_object_or_404(Comment, pk=pk)
+        instance = get_object_or_404(self.get_queryset(), pk=pk)
         serializer = CommentGetSerializer(instance, context={'request': request})
         return Response(serializer.data)
 
@@ -94,7 +133,7 @@ class CommentRetrieveView(APIView):
         return Response(serializer.data)
 
     def delete(self, request, pk, *args, **kwargs):
-        instance = get_object_or_404(Comment, pk=pk)
+        instance = get_object_or_404(self.get_queryset(), pk=pk)
         comment_has_replies = Comment.objects.filter(parent_id=pk).exists()
         if comment_has_replies:
             instance.author = None
@@ -112,6 +151,11 @@ class ReactionCommentView(APIView):
     def get_queryset(self, *args, **kwargs):
         return Comment.objects.filter(reaction=self.request.user)
 
+    def get_str_reaction_choices(self):
+        reactions_constant = Reaction.REACTION_STATUS_CHOICES
+        pretty_constant = "; ".join([f"{str(i[0])} - {str(i[1])}" for i in reactions_constant])
+        return pretty_constant
+
     def patch(self, request, pk, *args, **kwargs):
         data = request.data
         user = request.user
@@ -122,13 +166,13 @@ class ReactionCommentView(APIView):
         except ValueError:
             return Response({'error': 'status быть числом'}, status=status.HTTP_400_BAD_REQUEST)
         except TypeError:
-            return Response({'error': 'В запросе отсутствует поле status. Добавьте status, где 1 - Лайк; 2 - Дизлайк'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': f'В запросе отсутствует поле status. Добавьте status, где {self.get_str_reaction_choices()}'}, status=status.HTTP_400_BAD_REQUEST)
 
         if user:
             comment = get_object_or_404(Comment, pk=pk)
             reaction_obj = Reaction.objects.filter(user=user, comment=comment).first()
 
-            if reaction_status == Reaction.DELETE: # if status in request = 0 (delete)
+            if reaction_status == Reaction.DELETE: # if status in request == -1 (delete)
                 if reaction_obj and user == comment.author: # if there is a reaction and user trying do delete his reaction
                     reaction_obj.delete()
                     return Response(status=status.HTTP_204_NO_CONTENT)
@@ -149,7 +193,7 @@ class ReactionCommentView(APIView):
                 serializer = ReactionSerializer(reaction_obj)
                 return Response(serializer.data, status=status.HTTP_200_OK)
             else:
-                return Response({'error': 'В запросе отсутствует поле status или оно некорректно. Добавьте status, где 1 - Лайк; 2 - Дизлайк'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': f'Поле status некорректно. status может принимать следующие значения: {self.get_str_reaction_choices()}'}, status=status.HTTP_400_BAD_REQUEST)
         
         return Response({'data': 'Добавлять в избранное могут только авторизованные пользователи'}, status=status.HTTP_401_UNAUTHORIZED)
 
