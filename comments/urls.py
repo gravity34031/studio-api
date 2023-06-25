@@ -29,6 +29,8 @@ urlpatterns = [
             <create_time> from old to recent
             <-create_time> from recent to old   # set by default
 
+        search: search is carried out according to body field
+
 """
 
 """

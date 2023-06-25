@@ -177,7 +177,7 @@ class TitleListSerializer(TitleMixin, serializers.ModelSerializer):
         fields = (
             'pk',
             'title',
-            'original_title', #
+            'original_title',
             'slug',
             'poster_thumbnail',
             'description',

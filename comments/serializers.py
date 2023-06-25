@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import *
-from user.serializers import CommentUserSerializer
+from user.serializers import UserCommentSerializer
 from rest_framework_recursive.fields import RecursiveField
 
 from django.contrib.auth import get_user_model
@@ -99,7 +99,7 @@ class CommentMixin(metaclass=serializers.SerializerMetaclass):
         }
 
 class CommentGetSerializer(CommentMixin, serializers.ModelSerializer):
-    author = CommentUserSerializer(read_only=True)
+    author = UserCommentSerializer(read_only=True)
         
 class CommentPostSerializer(CommentMixin, serializers.ModelSerializer):
     author = serializers.HiddenField(default=serializers.CurrentUserDefault())

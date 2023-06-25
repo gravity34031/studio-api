@@ -302,8 +302,9 @@ class RatingDeleteView(APIView):
         if user:
             title = get_object_or_404(Title, slug=slug)
             rating_instance = TitleRating.objects.filter(title=title, user=user).first()
-            rating_instance.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            if rating_instance:
+                rating_instance.delete()
+                return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
 

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from django.contrib.contenttypes.models import ContentType
 
 from rest_framework.filters import SearchFilter, OrderingFilter
+from core.custom_moduls.paginators import CommentSetPagination
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
@@ -25,7 +26,9 @@ str_to_model_dict = {'Title': Title, 'News': News} # Here you can add other mode
 class GetCommentsView(GenericAPIView):
     serializer_class = CommentGetSerializer
     queryset = Comment.objects.all()
+    pagination_class = CommentSetPagination
     filter_backends = [OrderingFilter, SearchFilter]
+    search_fields = ['body']
     ordering_fields = ('create_time', 'rating')
     ordering = ['-create_time']
 
@@ -76,9 +79,17 @@ class GetCommentsView(GenericAPIView):
         queryset = self.filter_queryset(self.get_queryset())
 
         if queryset:
-            data_for_filter_parent_serializer = queryset.filter(parent=None) # need to add to context
+            data_for_filter_parent_serializer = queryset.filter(parent=None) # need to add to context. exlude childs instance from data. childs only in parents comments
+            context = {'request': request, 'filtered_parent': data_for_filter_parent_serializer}
 
-            serializer = CommentGetSerializer(queryset, many=True, context={'request': request, 'filtered_parent': data_for_filter_parent_serializer})
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.serializer_class(page, many=True, context=context)
+                return self.get_paginated_response(serializer.data)
+
+            serializer = self.serializer_class(queryset, many=True, context=context)
+
+            # serializer = CommentGetSerializer(queryset, many=True, context=context)
             return Response(serializer.data)
         return Response({'error': 'Данный контент не найден. Подсказка: укажите в параметрах запроса поле <content_type>, где задайте значение для конкретной модели. Пример: .../comments/magicheskaya-bitva/?content_type=title'})
 
@@ -134,17 +145,19 @@ class CommentRetrieveView(APIView):
 
     def delete(self, request, pk, *args, **kwargs):
         instance = get_object_or_404(self.get_queryset(), pk=pk)
-        comment_has_replies = Comment.objects.filter(parent_id=pk).exists()
-        if comment_has_replies:
-            instance.author = None
-            instance.body = None
-            instance.is_deleted = True
-            instance.save(update_fields=['author', 'body', 'is_deleted'])
-            serializer = CommentGetSerializer(instance, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        else:
-            instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if instance.is_deleted == False and request.user == instance.author:
+            comment_has_replies = Comment.objects.filter(parent_id=pk).exists()
+            if comment_has_replies:
+                instance.author = None
+                instance.body = None
+                instance.is_deleted = True
+                instance.save(update_fields=['author', 'body', 'is_deleted'])
+                serializer = CommentGetSerializer(instance, context={'request': request})
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                instance.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(status=status.HTTP_403_FORBIDDEN)
 
 
 class ReactionCommentView(APIView):
@@ -172,9 +185,15 @@ class ReactionCommentView(APIView):
             comment = get_object_or_404(Comment, pk=pk)
             reaction_obj = Reaction.objects.filter(user=user, comment=comment).first()
 
+            # Deleting section
             if reaction_status == Reaction.DELETE: # if status in request == -1 (delete)
-                if reaction_obj and user == comment.author: # if there is a reaction and user trying do delete his reaction
+                if reaction_obj: # and user == comment.author: # if there is a reaction and user trying do delete his reaction
                     reaction_obj.delete()
+
+                    # Update rating of the comment
+                    comment.rating = comment._get_rating()
+                    comment.save(update_fields=['rating'])
+
                     return Response(status=status.HTTP_204_NO_CONTENT)
                 else:
                     return Response({'error': 'Реакции уже не существует или это не твоя реакция'}, status=status.HTTP_400_BAD_REQUEST)
