@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from .models import *
 from user.serializers import UserCommentSerializer
-from rest_framework_recursive.fields import RecursiveField
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
@@ -16,7 +15,7 @@ from content.models import News
 class ContentObjectRelatedField(serializers.RelatedField):
     def to_representation(self, value):
         class_name = str(type(value).__name__)
-        return {'obj': class_name, 'slug': value.slug}
+        return {'obj': class_name, 'title': value.title, 'slug': value.slug}
 
 
 class FilterParentSerializer(serializers.ListSerializer):

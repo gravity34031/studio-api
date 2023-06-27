@@ -111,7 +111,7 @@ class TitleMixin(metaclass=serializers.SerializerMetaclass):
     def get_your_rating(self, title):
         if self.context:
             user = self.context.get('request').user
-            if user:
+            if user and user.is_authenticated:
                 # if user rated title return his rating
                 rating_obj = TitleRating.objects.filter(title=title, user=user).first()
                 if rating_obj:
@@ -121,7 +121,7 @@ class TitleMixin(metaclass=serializers.SerializerMetaclass):
     def get_your_favourite(self, title):
         if self.context:
             user = self.context.get('request').user
-            if user:
+            if user and user.is_authenticated:
                 # if user added title to favourite
                 rating_obj_exists = user.favourite_titles.filter(slug=title.slug).exists()
                 if rating_obj_exists:

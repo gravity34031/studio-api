@@ -8,8 +8,9 @@ from django.db.models import UniqueConstraint
 from django.utils.translation import gettext_lazy as _
 from ckeditor_uploader.fields import RichTextUploadingField
 from django_resized import ResizedImageField
-from pytils import translit
 from django.shortcuts import get_object_or_404
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 from comments.models import Comment
 
@@ -81,6 +82,25 @@ class Genre(models.Model):
 
 
 
+class Views(models.Model):
+    # title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name='title_views')
+    ip = models.GenericIPAddressField(default="45.243.82.169", null=True)
+
+    content_type = models.ForeignKey(ContentType, on_delete=models.RESTRICT)
+    object_id = models.PositiveBigIntegerField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['content_type', 'object_id'])
+        ]
+
+
+    def __str__(self):
+        return '{0} in {1} post'.format(self.ip, self.content_object)
+
+
+
 ###
 class Title(models.Model):
     def __init__(self, *args, **kwargs):
@@ -116,6 +136,7 @@ class Title(models.Model):
     genres = models.ManyToManyField(Genre, related_name='titles', verbose_name='Жанр')
 
     comments = GenericRelation(Comment)
+    title_views = GenericRelation(Views)
 
     class Meta:
         ordering = ('-create_time',)
@@ -127,7 +148,8 @@ class Title(models.Model):
 
     @property
     def views(self):
-        return TitleViews.objects.filter(title=self).count()
+        content_type = ContentType.objects.get_for_model(self)
+        return Views.objects.filter(content_type=content_type, object_id=self.pk).count()
 
     # @property
     # def rating(self): # Average rating
@@ -170,13 +192,6 @@ class AverageTitleRating(models.Model):
     def __str__(self):
         return f"title:<{str(self.title.title)}>; rating:<{self.rating}>"
 
-
-class TitleViews(models.Model):
-    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name='title_views')
-    ip = models.GenericIPAddressField(default="45.243.82.169", null=True)
-
-    def __str__(self):
-        return '{0} in {1} post'.format(self.ip,self.title)
 
 
 class TitleRating(models.Model):

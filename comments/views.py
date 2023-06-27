@@ -31,6 +31,7 @@ class GetCommentsView(GenericAPIView):
     search_fields = ['body']
     ordering_fields = ('create_time', 'rating')
     ordering = ['-create_time']
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         queryset = Comment.objects.none()
@@ -49,7 +50,7 @@ class GetCommentsView(GenericAPIView):
                 child_queryset = Comment.objects.filter(~Q(parent=None)).prefetch_related('children', 'content_object').select_related('author').order_by('create_time')
 
 
-                if request.user:
+                if request.user and request.user.is_authenticated:
                     queryset = queryset.annotate(your_react = Sum(Case(
                         When(comment_reaction__user=request.user, then=F('comment_reaction__status'))
                     )))
@@ -98,6 +99,7 @@ class GetCommentsView(GenericAPIView):
 class CommentView(GenericAPIView):
     serializer_class = CommentPostSerializer
     queryset = Comment.objects.all()
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -123,6 +125,7 @@ class CommentView(GenericAPIView):
 class CommentRetrieveView(APIView):
     serializer_class = CommentPostSerializer
     queryset = Comment.objects.all()
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         return Comment.objects.select_related('author').prefetch_related(
@@ -161,6 +164,8 @@ class CommentRetrieveView(APIView):
 
 
 class ReactionCommentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_queryset(self, *args, **kwargs):
         return Comment.objects.filter(reaction=self.request.user)
 
@@ -181,7 +186,7 @@ class ReactionCommentView(APIView):
         except TypeError:
             return Response({'error': f'В запросе отсутствует поле status. Добавьте status, где {self.get_str_reaction_choices()}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user:
+        if user and user.is_authenticated:
             comment = get_object_or_404(Comment, pk=pk)
             reaction_obj = Reaction.objects.filter(user=user, comment=comment).first()
 

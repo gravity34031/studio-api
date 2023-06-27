@@ -94,11 +94,10 @@ class ChangePasswordView(GenericAPIView):
         return Response({"detail": "Пароль успешно изменен!"}, status=status.HTTP_200_OK)
 
 
-from core.models import Genre
-
 
 class FavouriteTitlesView(TitleListView):
     permission_classes = [permissions.AllowAny]
+
     def filter_queryset(self, queryset):
         username = self.kwargs.get('username')
         return super().filter_queryset(queryset.filter(favourites__username=username))
@@ -107,6 +106,7 @@ class FavouriteTitlesView(TitleListView):
 
 class RatingTitlesView(TitleListView):
     permission_classes = [permissions.AllowAny]
+    
     def filter_queryset(self, queryset):
         username = self.kwargs.get('username')
         return super().filter_queryset(queryset.filter(title_rating__user__username=username))

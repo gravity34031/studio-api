@@ -40,7 +40,7 @@ class FrameAdmin(admin.ModelAdmin):
 
 
 
-@admin.register(TitleViews)
+@admin.register(Views)
 class ViewsAdmin(admin.ModelAdmin):
     pass
 

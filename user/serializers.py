@@ -200,7 +200,7 @@ class RatedTitlesSerializer(TitleListSerializer):
 class ContentObjectRelatedField(serializers.RelatedField):
     def to_representation(self, value):
         class_name = str(type(value).__name__)
-        return {'obj': class_name, 'slug': value.slug}
+        return {'obj': class_name, 'title': value.title, 'slug': value.slug}
 
 class CommentSerializer(serializers.ModelSerializer):
     content_object = ContentObjectRelatedField(read_only=True)

@@ -3,8 +3,9 @@ from django.conf import settings
 from django.shortcuts import render
 from django.http import QueryDict
 from django.db.models import Count, F, Prefetch
-from .models import *
 from django.shortcuts import get_object_or_404
+from django.contrib.contenttypes.models import ContentType
+from .models import *
 from .serializers import *
 from rest_framework import viewsets, permissions, status, generics
 from rest_framework.views import APIView
@@ -19,6 +20,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 # Create your views here.
 
+from .custom_moduls.permissions import IsAdminOrReadOnly
 from .custom_moduls.paginators import TitleSetPagination
 from .custom_moduls.filters import TitleFilter
 
@@ -31,6 +33,7 @@ class StudioViewSet(viewsets.ModelViewSet):
     queryset = Studio.objects.all()
     serializer_class = StudioSerializer
     lookup_field = 'slug'
+    permission_classes = [IsAdminOrReadOnly]
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -42,6 +45,7 @@ class StudioViewSet(viewsets.ModelViewSet):
         return Response(error, status=status.HTTP_204_NO_CONTENT)
 
 class TitleByStudioView(APIView):
+    permission_classes = [permissions.AllowAny]
     def get_queryset(self):
         return Title.objects.select_related('average_rating').prefetch_related('genres', 'title_views')
 
@@ -56,6 +60,7 @@ class ActorViewSet(viewsets.ModelViewSet):
     queryset = Actor.objects.all()
     serializer_class = ActorSerializer
     lookup_field = 'slug'
+    permission_classes = [IsAdminOrReadOnly]
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -67,6 +72,7 @@ class ActorViewSet(viewsets.ModelViewSet):
         return Response(error, status=status.HTTP_204_NO_CONTENT)
 
 class TitleByActorView(APIView):
+    permission_classes = [permissions.AllowAny]
     def get_queryset(self):
         return TitleByStudioView.get_queryset(self)
 
@@ -81,8 +87,10 @@ class GenreViewSet(viewsets.ModelViewSet):
     queryset = Genre.objects.all()
     serializer_class = GenreSerializer
     lookup_field = 'slug'
+    permission_classes = [IsAdminOrReadOnly]
 
 class TitleByGenreView(APIView):
+    permission_classes = [permissions.AllowAny]
     def get_queryset(self):
         return TitleByStudioView.get_queryset(self)
 
@@ -97,6 +105,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     queryset = Schedule.objects.all().select_related('title', 'title__average_rating').prefetch_related('title__genres')
     serializer_class = ScheduleGetSerializer
     lookup_field = 'pk'
+    permission_classes = [IsAdminOrReadOnly]
 
     def get_serializer_class(self):
         if self.action in ('create', 'update', 'partial_update'):
@@ -119,6 +128,7 @@ class TitleListView(GenericAPIView):
     ]
     ordering_fields = ('create_time', 'update_time', 'title', 'aired_on', 'rating', 'popular')
     ordering = ['create_time'] # default sorting
+    permission_classes = [IsAdminOrReadOnly]
 
 
     def get_queryset(self, *args, **kwargs):
@@ -157,6 +167,7 @@ class TitleListView(GenericAPIView):
 
 class TitleRetrieveView(APIView):
     serializer_class = TitlePostSerializer # need for patch request form in BrowsableAPIRenderer
+    permission_classes = [IsAdminOrReadOnly]
 
     def get_queryset(self, *args, **kwargs):
         return Title.objects.select_related('average_rating').prefetch_related('title_views', 'related_lists__genres', 'related_lists__actors', 'related_lists__studios', 'related_lists__average_rating')
@@ -168,7 +179,10 @@ class TitleRetrieveView(APIView):
         
         # add view & check if the ip doesn't see title yet
         ip = get_client_ip(request)
-        TitleViews.objects.get_or_create(ip=ip, title=post)
+
+        content_type = ContentType.objects.get_for_model(Title)
+        Views.objects.only('pk').get_or_create(ip=ip, content_type=content_type, object_id=post.pk)
+
 
         return Response(serializer.data)
 
@@ -206,6 +220,7 @@ class TitleRetrieveView(APIView):
 
 
 class RandomTitleView(APIView):
+    permission_classes = [permissions.AllowAny]
     def get_queryset(self, *args, **kwargs):
         return TitleRetrieveView.get_queryset(self)
 
@@ -225,11 +240,13 @@ class RandomTitleView(APIView):
 class FramePostView(generics.CreateAPIView):
     queryset = Frame.objects.all()
     serializer_class = FrameSerializer
+    permission_classes = [permissions.IsAdminUser]
 
 
 class FrameDeleteView(APIView):
     queryset = Frame.objects.all()
     serializer_class = FrameSerializer
+    permission_classes = [permissions.IsAdminUser]
 
     def delete(self, request, pk, *args, **kwargs):
         instance = get_object_or_404(Frame, pk=pk)
@@ -244,6 +261,7 @@ class FrameDeleteView(APIView):
 class FramesDeleteView(APIView):
     queryset = Frame.objects.all()
     serializer_class = FrameSerializer
+    permission_classes = [permissions.IsAdminUser]
 
     # delete all frames of title
     def delete(self, request, slug, *args, **kwargs):
@@ -261,6 +279,7 @@ class FramesDeleteView(APIView):
 ########################################
 class RatingListView(APIView):
     serializer_class = RatingSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
         return TitleRating.objects.select_related('average_rating')
@@ -293,6 +312,7 @@ class RatingListView(APIView):
 
 class RatingDeleteView(APIView):
     serializer_class = RatingSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self, *args, **kwargs):
         return TitleRating.objects.all()
@@ -310,6 +330,8 @@ class RatingDeleteView(APIView):
 
 
 class FavouriteView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
     def get_queryset(self, *args, **kwargs):
         return Title.objects.filter(favourites=self.request.user)
 
